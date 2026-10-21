@@ -266,3 +266,20 @@ func TestBatterySocLimits(t *testing.T) {
 		require.Equal(t, expected, res.batterySocLimits)
 	}
 }
+
+func TestConfigurableMaxDischarge(t *testing.T) {
+	conf := `
+power: {source: const, value: 0}
+soc: {source: const, value: 50}
+maxdischarge: {source: sleep, duration: 0s}
+`
+	var other map[string]any
+	require.NoError(t, yaml.Unmarshal([]byte(conf), &other))
+
+	m, err := NewConfigurableFromConfig(context.TODO(), other)
+	require.NoError(t, err)
+
+	dis, ok := api.Cap[api.BatteryMaxDischarger](m)
+	require.True(t, ok)
+	require.NoError(t, dis.SetMaxDischarge(1500))
+}

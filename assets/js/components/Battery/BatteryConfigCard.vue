@@ -75,6 +75,31 @@
 			</div>
 		</div>
 
+		<div
+			v-if="peakShavingAvailable"
+			class="d-flex gap-3 mb-4"
+			data-testid="battery-peak-shaving"
+		>
+			<shopicon-regular-batterythreequarters
+				size="s"
+				class="text-primary flex-shrink-0 mt-1"
+			></shopicon-regular-batterythreequarters>
+			<div>
+				<div class="fw-bold mb-1">
+					{{ $t("battery.config.peakShavingTitle") }}
+				</div>
+				<InlineSocSelect
+					id="batteryPeakShaving"
+					:options="peakShavingOptions"
+					:selected="selectedPeakShavingSoc"
+					:label="peakShavingLabel"
+					nowrap
+					@change="changePeakShavingSoc"
+				/>
+				<p class="mb-0 mt-1">{{ $t("battery.config.peakShaving") }}</p>
+			</div>
+		</div>
+
 		<p
 			v-if="optimizerControlledTitles.length"
 			class="d-flex gap-3 text-muted small mb-0"
@@ -173,10 +198,11 @@
 <script lang="ts">
 import "@h2d2/shopicons/es/regular/sun";
 import "@h2d2/shopicons/es/regular/lightning";
+import "@h2d2/shopicons/es/regular/batterythreequarters";
 import { defineComponent, type PropType } from "vue";
 import formatter from "@/mixins/formatter";
 import api from "@/api";
-import type { Battery } from "@/types/evcc";
+import type { Battery, Circuit } from "@/types/evcc";
 import Card from "../Helper/Card.vue";
 import ConfirmModal from "../Helper/ConfirmModal.vue";
 import InlineSocSelect from "./InlineSocSelect.vue";
@@ -191,6 +217,8 @@ export default defineComponent({
 		bufferSoc: { type: Number, default: 100 },
 		prioritySoc: { type: Number, default: 0 },
 		bufferStartSoc: { type: Number, default: 0 },
+		peakShavingSoc: { type: Number, default: 0 },
+		circuits: { type: Object as PropType<Record<string, Circuit>>, default: () => ({}) },
 		batteryDischargeControl: Boolean,
 		batteryGridDischarge: Boolean,
 		battery: { type: Object as PropType<Battery> },
@@ -207,6 +235,7 @@ export default defineComponent({
 			selectedBufferSoc: 100,
 			selectedPrioritySoc: 0,
 			selectedBufferStartSoc: 0,
+			selectedPeakShavingSoc: 0,
 		};
 	},
 	computed: {
@@ -236,6 +265,27 @@ export default defineComponent({
 		},
 		controllable(): boolean {
 			return (this.battery?.devices ?? []).some(({ controllable }) => controllable);
+		},
+		peakShavingAvailable(): boolean {
+			if (!this.controllable) {
+				return false;
+			}
+			return Object.values(this.circuits ?? {}).some(
+				(circuit) => !circuit.parent && (circuit.maxPower ?? 0) > 0
+			);
+		},
+		peakShavingOptions() {
+			const options = [{ value: 0, name: this.$t("config.general.off") }];
+			for (let i = 5; i <= 100; i += 5) {
+				options.push({ value: i, name: this.fmtSoc(i) });
+			}
+			return options;
+		},
+		peakShavingLabel(): string {
+			if (this.selectedPeakShavingSoc <= 0) {
+				return this.$t("config.general.off");
+			}
+			return this.fmtSoc(this.selectedPeakShavingSoc);
 		},
 		priorityOptions() {
 			const options = [];
@@ -289,6 +339,12 @@ export default defineComponent({
 			},
 			immediate: true,
 		},
+		peakShavingSoc: {
+			handler(soc: number) {
+				this.selectedPeakShavingSoc = soc || 0;
+			},
+			immediate: true,
+		},
 	},
 	methods: {
 		changePrioritySoc($event: Event) {
@@ -330,6 +386,15 @@ export default defineComponent({
 			this.selectedBufferSoc = soc;
 			try {
 				await api.post(`buffersoc/${encodeURIComponent(soc)}`);
+			} catch (err) {
+				console.error(err);
+			}
+		},
+		async changePeakShavingSoc($event: Event) {
+			const soc = parseInt(($event.target as HTMLInputElement).value, 10);
+			this.selectedPeakShavingSoc = soc;
+			try {
+				await api.post(`peakshavingsoc/${encodeURIComponent(soc)}`);
 			} catch (err) {
 				console.error(err);
 			}

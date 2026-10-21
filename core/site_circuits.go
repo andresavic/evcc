@@ -30,14 +30,23 @@ type circuitStruct struct {
 // updateCircuits updates all circuits' power and currents
 func (site *Site) updateCircuits() {
 	if site.circuit == nil {
+		site.setCircuitPowerOK(false)
 		return
 	}
 
-	if err := site.circuit.Update(site.loadpointsAsCircuitDevices()); err != nil {
+	err := site.circuit.Update(site.loadpointsAsCircuitDevices())
+	site.setCircuitPowerOK(err == nil)
+	if err != nil {
 		site.log.ERROR.Println(err)
 	}
 
 	site.publishCircuits()
+}
+
+func (site *Site) setCircuitPowerOK(ok bool) {
+	site.Lock()
+	site.circuitPowerOK = ok
+	site.Unlock()
 }
 
 // applyHemsLimits applies the HEMS dim and curtail state to the site's devices

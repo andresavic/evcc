@@ -63,6 +63,8 @@
         "title": "Grid export from battery"
       },
       "optimizerControlledHint": "Disabled for {loadpoints}. The {optimizer} decides instead.",
+      "peakShaving": "Below this charge level the battery is kept for peaks. It discharges only while the load-management limit is reached.",
+      "peakShavingTitle": "Peak-shaving reserve",
       "priority": "Home battery has priority while it is below {soc}. Then the charging points receive the surplus.",
       "priorityNone": "Solar surplus goes straight to the charging points. Set a value above {soc} to prioritize the home battery.",
       "priorityTitle": "Where does the surplus go first?"

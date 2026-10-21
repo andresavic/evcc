@@ -11,9 +11,11 @@ requirements:
   description:
     de: |
       Um die aktive Ladesteuerung zu nutzen darf der Energiekosten-Assistent (ECA) im Fronius Solar.web nicht aktiviert sein. (Fronius Solar.web->Einstellungen->Betriebsmodus->Eigenverbrauch)
+      Ein am Wechselrichter eingestellter Mindestladestand auf oder über der Lastspitzenreserve verhindert, dass diese Reserve entladen wird. Die maximale Entladeleistung muss gesetzt sein, damit eine begrenzte Entladerate vorgegeben werden kann. Die Eigenverbrauchsoptimierung bleibt aktiv.
       Zähleradresse von Primär- oder Sekundärzählern: auf der Weboberfläche des Wechselrichters kann nur die Adresse des ersten Zählers (z.B. 200) eingestellt werden. Zusätzliche Zähler erhalten eine aufsteigende Nummer (z.B: 201).
     en: |
       To use active charge control, the Energy Cost Assistant (ECA) must not be activated in Fronius Solar.web. (Fronius Solar.web -> Settings -> Operating Mode -> Self-Consumption)
+      A minimum charge level set on the inverter at or above the peak-shaving reserve stops that reserve from discharging. Set the maximum discharge power so a limited discharge rate can be commanded. Keep self-consumption optimization enabled.
       Meter address of primary or secondary meters: on the web interface of the inverter, only the address of the first meter (e.g., 200) can be set. Additional meters receive an ascending number (e.g., 201).
 discovery:
   mdns: ["_Fronius-SE-Inverter._tcp"]
@@ -370,5 +372,22 @@ render: |
             uri: {{ joinHostPort .host .port }}
             id: 1
             value: 124:0:StorCtl_Mod
+  {{- if .maxdischargepower }}
+  maxdischarge: # limited discharge, W. StorCtl_Mod stays in discharge control.
+    source: sequence
+    set:
+    - source: const
+      value: 2
+      set:
+        source: sunspec
+        {{- include "modbus-connection" . | indent 8 }}
+        id: 1
+        value: 124:0:StorCtl_Mod
+    - source: sunspec
+      {{- include "modbus-connection" . | indent 6 }}
+      id: 1
+      value: 124:0:OutWRte
+      scale: {{ divf 100 .maxdischargepower }} # % of max discharge power
+  {{- end }}
   {{- include "battery-params" . }}
   {{- end }}

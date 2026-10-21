@@ -105,6 +105,10 @@ optimal current, sends single command. Resilient to restarts and missed updates.
 
 None of these apply to a loadpoint the optimizer controls: the optimizer plans the home battery, so a stop gives the battery priority and a charge takes the surplus (`loadpointSitePower`, `#34606`). A charge the home battery covers is pinned to its setpoint instead, the pv loop would count the discharge as deficit (`surplusRegime`, `#34809`).
 
+## Peak-shaving reserve
+
+`peakShavingSoc` (0 disables) keeps battery discharge locked at or below that charge level until the root circuit reaches its `maxPower`. It does not add a power limit. While unlocked, the battery discharges only `max(0, gridImport + batteryDischarge - maxPower)` through a discharge ceiling. Full self-consumption is not used for that unlock. Controllable loadpoints keep the circuit limit. The unlock starts at 95% of `maxPower` and the lock returns once corrected power is below that band. A manufacturer minimum charge level at or above the reserve stops the discharge.
+
 ## Effective Price Calculation
 
 ```

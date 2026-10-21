@@ -54,6 +54,13 @@ type BatteryPowerLimiter interface {
 	GetPowerLimits() (charge, discharge float64, err error)
 }
 
+// BatteryMaxDischarger limits discharge to at most power watts.
+// Zero inhibits discharge. Implementations must not fall back to unrestricted
+// self-consumption: power is a ceiling, not a release of battery control.
+type BatteryMaxDischarger interface {
+	SetMaxDischarge(power float64) error
+}
+
 // BatterySocLimiter provides min/max battery soc in %
 type BatterySocLimiter interface {
 	GetSocLimits() (min, max float64, err error)

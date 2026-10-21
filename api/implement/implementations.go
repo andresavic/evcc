@@ -56,6 +56,21 @@ func (i *iBatteryController) SetBatteryMode(p0 api.BatteryMode) error {
 	return i.batteryController1(p0)
 }
 
+func BatteryMaxDischarger(batteryMaxDischarger0 func(float64) error) api.BatteryMaxDischarger {
+	if batteryMaxDischarger0 == nil {
+		return nil
+	}
+	return &iBatteryMaxDischarger{batteryMaxDischarger0}
+}
+
+type iBatteryMaxDischarger struct {
+	batteryMaxDischarger0 func(float64) error
+}
+
+func (i *iBatteryMaxDischarger) SetMaxDischarge(p0 float64) error {
+	return i.batteryMaxDischarger0(p0)
+}
+
 func BatteryPowerLimiter(batteryPowerLimiter0 func() (float64, float64, error)) api.BatteryPowerLimiter {
 	if batteryPowerLimiter0 == nil {
 		return nil

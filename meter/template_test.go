@@ -1,11 +1,14 @@
 package meter
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/evcc-io/evcc/api"
 	"github.com/evcc-io/evcc/util/templates"
 	"github.com/evcc-io/evcc/util/test"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 var acceptable = []string{
@@ -36,6 +39,29 @@ var acceptable = []string{
 	"missing access key",                                                   // Ecoflow
 	"eebus not configured",                                                 // EEBus
 	"missing token",                                                        // HomeAssistant
+}
+
+func TestPeakDischargeTemplate(t *testing.T) {
+	for _, name := range []string{"fronius-gen24", "fronius-vertoplus", "sunspec-inverter-control"} {
+		t.Run(name, func(t *testing.T) {
+			tmpl, err := templates.ByName(templates.Meter, name)
+			require.NoError(t, err)
+
+			values := map[string]any{"usage": "battery", "host": "192.0.2.2"}
+			b, _, err := tmpl.RenderResult(templates.Meter, templates.RenderModeInstance, values)
+			require.NoError(t, err)
+			assert.NotContains(t, string(b), "maxdischarge:")
+
+			values["maxdischargepower"] = 5000
+			b, _, err = tmpl.RenderResult(templates.Meter, templates.RenderModeInstance, values)
+			require.NoError(t, err)
+			out := string(b)
+			assert.Contains(t, out, "maxdischarge:")
+			assert.Contains(t, out, "124:0:StorCtl_Mod")
+			assert.Contains(t, out, "124:0:OutWRte")
+			assert.True(t, strings.Contains(out, "scale: 0.02"), out)
+		})
+	}
 }
 
 func TestTemplates(t *testing.T) {

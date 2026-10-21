@@ -23,6 +23,8 @@
 						:buffer-soc="state.bufferSoc"
 						:priority-soc="state.prioritySoc"
 						:buffer-start-soc="state.bufferStartSoc"
+						:peak-shaving-soc="state.peakShavingSoc"
+						:circuits="state.circuits"
 						:battery-discharge-control="state.batteryDischargeControl"
 						:battery-grid-discharge="state.batteryGridDischarge"
 						:battery="state.battery"

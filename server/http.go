@@ -193,6 +193,7 @@ func (s *HTTPd) RegisterSiteHandlers(site site.API) {
 		"batterymode":                     {"POST", "/batterymode/{value:[a-z]+}", updateBatteryMode(site)},
 		"batterymodedelete":               {"DELETE", "/batterymode", updateBatteryMode(site)},
 		"prioritysoc":                     {"POST", "/prioritysoc/{value:[0-9.]+}", floatHandler(site.SetPrioritySoc, site.GetPrioritySoc)},
+		"peakshavingsoc":                  {"POST", "/peakshavingsoc/{value:[0-9.]+}", floatHandler(site.SetPeakShavingSoc, site.GetPeakShavingSoc)},
 		"residualpower":                   {"POST", "/residualpower/{value:-?[0-9.]+}", floatHandler(site.SetResidualPower, site.GetResidualPower)},
 		"gridexportlimit":                 {"POST", "/gridexportlimit/{value:[0-9.]+}", floatHandler(site.SetGridExportLimit, site.GetGridExportLimit)},
 		"profilepercentile":               {"POST", "/profilepercentile/{value:[0-9.]+}", floatPtrHandler(site.SetProfilePercentile, site.GetProfilePercentile)},

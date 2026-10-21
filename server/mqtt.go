@@ -230,6 +230,7 @@ func (m *MQTT) listenSiteSetters(topic string, site site.API) error {
 		{"batteryDischargeControl", boolSetter(site.SetBatteryDischargeControl)},
 		{"batteryGridDischarge", boolSetter(site.SetBatteryGridDischarge)},
 		{"prioritySoc", floatSetter(site.SetPrioritySoc)},
+		{"peakShavingSoc", floatSetter(site.SetPeakShavingSoc)},
 		{"residualPower", floatSetter(site.SetResidualPower)},
 		{"gridExportLimit", floatSetter(site.SetGridExportLimit)},
 		{"solarAdjusted", boolSetter(pass(site.SetSolarAdjusted))},

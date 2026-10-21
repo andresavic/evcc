@@ -11,7 +11,7 @@
 ## REST API (base `/api/`)
 
 ### Site-level
-- `POST /buffersoc/{value}`, `/prioritysoc/{value}`, `/residualpower/{value}` etc.
+- `POST /buffersoc/{value}`, `/prioritysoc/{value}`, `/peakshavingsoc/{value}`, `/residualpower/{value}` etc.
 - `GET /tariff/{tariff}` — tariff rates
 - `GET /sessions` — charging history
 - `GET /state` — complete system state (supports jq filtering)
