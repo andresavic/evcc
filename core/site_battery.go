@@ -2,6 +2,7 @@ package core
 
 import (
 	"errors"
+	"math"
 	"slices"
 	"time"
 
@@ -12,6 +13,27 @@ import (
 	"github.com/evcc-io/evcc/hems/hems"
 	"github.com/evcc-io/evcc/util/config"
 )
+
+// peakShavingBand unlocks the reserve at 95% of the circuit limit and locks it
+// again only after corrected power has fallen below that same band.
+const peakShavingBand = 0.05
+
+// peakShavingDeadband skips rewriting a discharge ceiling that barely changed.
+const peakShavingDeadband = 50.0
+
+type peakShavingAction int
+
+const (
+	peakShavingNone peakShavingAction = iota
+	peakShavingSkip
+	peakShavingHold
+	peakShavingDischarge
+)
+
+type peakShavingDecision struct {
+	action    peakShavingAction
+	discharge float64
+}
 
 func batteryModeModified(mode api.BatteryMode) bool {
 	return mode != api.BatteryUnknown && mode != api.BatteryNormal
@@ -62,19 +84,60 @@ func (site *Site) fromTo(requested, m api.BatteryMode) bool {
 }
 
 func (site *Site) updateBatteryMode(batteryGridChargeActive, batteryGridDischargeActive bool, rate api.Rate) {
+	peak := site.peakShavingDecision()
 	batteryMode := site.requiredBatteryMode(batteryGridChargeActive, batteryGridDischargeActive, rate)
 
 	// put battery into hold mode when charging is active and HEMS dimmed
+	hemsAdjusted := false
 	if dimmed := hems.Dimmed(site.hems); site.fromTo(batteryMode, api.BatteryCharge) && dimmed != nil && *dimmed {
 		site.log.DEBUG.Println("battery mode: HEMS dimmed")
 		batteryMode = api.BatteryHold
+		hemsAdjusted = true
 	}
 
 	// stop discharging to grid when HEMS curtailed production, but keep self-consumption
 	if curtailed := hems.Curtailed(site.hems); site.fromTo(batteryMode, api.BatteryDischarge) && curtailed != nil && *curtailed {
 		site.log.DEBUG.Println("battery mode: HEMS curtailed")
 		batteryMode = api.BatteryNormal
+		hemsAdjusted = true
 	}
+
+	// external control and a grid-operator limit outrank the reserve
+	if !hemsAdjusted && !site.batteryModeExternalPending() {
+		switch peak.action {
+		case peakShavingSkip:
+			if site.peakShavingEngaged {
+				site.log.DEBUG.Println("peak shaving: grid or circuit power unavailable")
+				return
+			}
+		case peakShavingDischarge:
+			wrote, err := site.applyPeakShavingDischarge(peak.discharge)
+			if err != nil {
+				site.log.ERROR.Println("battery mode:", err)
+				return
+			}
+			site.peakShavingEngaged = true
+			if !wrote {
+				site.SetBatteryMode(api.BatteryHold)
+			}
+			return
+		case peakShavingHold:
+			// grid charging stays. Anything else locks discharge while the reserve is kept.
+			if !batteryGridChargeActive && batteryMode != api.BatteryCharge && batteryMode != api.BatteryHold {
+				batteryMode = api.BatteryHold
+			}
+			// already locked, and no discharge ceiling left to clear
+			if batteryMode == api.BatteryHold && site.GetBatteryMode() == api.BatteryHold && len(site.peakDischarge) == 0 {
+				batteryMode = api.BatteryUnknown
+			}
+			site.peakShavingEngaged = true
+		case peakShavingNone:
+			site.peakShavingEngaged = false
+		}
+	}
+
+	// a discharge ceiling owns the mode registers, so the following mode must be written again
+	batteryMode = site.releasePeakDischarge(batteryMode)
 
 	// NOTE: applyBatteryMode is always called when charge or discharge mode is active to
 	// validate max soc / min soc reserve
@@ -87,6 +150,184 @@ func (site *Site) updateBatteryMode(batteryGridChargeActive, batteryGridDischarg
 			site.log.ERROR.Println("battery mode:", err)
 		}
 	}
+}
+
+// batteryModeExternalPending reports an external mode that is active or still winding down.
+func (site *Site) batteryModeExternalPending() bool {
+	if site.GetBatteryModeExternal() != api.BatteryUnknown {
+		return true
+	}
+	site.RLock()
+	defer site.RUnlock()
+	return !site.batteryModeExternalTimer.IsZero()
+}
+
+// peakShavingDecision reads the reserve, the grid meter and the root circuit limit.
+func (site *Site) peakShavingDecision() peakShavingDecision {
+	site.RLock()
+	reserve := site.peakShavingSoc
+	soc := site.battery.Soc
+	grid := site.gridPower
+	battery := site.battery.Power
+	readable := site.gridPowerOK && site.circuitPowerOK
+	circuit := site.circuit
+	site.RUnlock()
+
+	var maxPower float64
+	if circuit != nil {
+		maxPower = circuit.GetMaxPower()
+	}
+
+	return decidePeakShaving(reserve, soc, grid, battery, maxPower, readable)
+}
+
+// releasePeakDischarge forces a mode write after a discharge ceiling.
+// Unknown means "already in the published mode"; that mode is written again so the ceiling is cleared.
+func (site *Site) releasePeakDischarge(mode api.BatteryMode) api.BatteryMode {
+	if len(site.peakDischarge) == 0 || mode != api.BatteryUnknown {
+		return mode
+	}
+	mode = site.GetBatteryMode()
+	if mode == api.BatteryUnknown {
+		return api.BatteryNormal
+	}
+	return mode
+}
+
+// decidePeakShaving chooses whether the reserve stays locked.
+// Positive battery power is discharge. Corrected power is grid import plus that
+// discharge, so commanding it does not look like the peak has ended.
+// The measured discharge is used once: adding the setpoint on top would raise
+// the ceiling every cycle until the inverter caught up.
+func decidePeakShaving(reserve, soc, gridImport, batteryPower, maxPower float64, readable bool) peakShavingDecision {
+	if reserve <= 0 || maxPower <= 0 {
+		return peakShavingDecision{action: peakShavingNone}
+	}
+	if !readable || math.IsNaN(gridImport) || math.IsNaN(batteryPower) || math.IsInf(gridImport, 0) || math.IsInf(batteryPower, 0) {
+		return peakShavingDecision{action: peakShavingSkip}
+	}
+
+	corrected := gridImport + math.Max(0, batteryPower)
+	active := corrected >= maxPower*(1-peakShavingBand)
+
+	// above the reserve the battery is not kept back, so a peak only throttles controllable loads
+	if soc > reserve {
+		return peakShavingDecision{action: peakShavingNone}
+	}
+	if active {
+		return peakShavingDecision{
+			action:    peakShavingDischarge,
+			discharge: math.Max(0, corrected-maxPower),
+		}
+	}
+	return peakShavingDecision{action: peakShavingHold}
+}
+
+// applyPeakShavingDischarge commands a discharge ceiling of power watts.
+// Devices that cannot limit discharge, or that have reached their own minimum
+// soc, are held. Normal mode is not used: it would hand the battery back to
+// full self-consumption. wrote reports whether any ceiling was sent.
+func (site *Site) applyPeakShavingDischarge(power float64) (bool, error) {
+	if power < 0 || math.IsNaN(power) {
+		power = 0
+	}
+
+	devices := site.state().battery.Devices
+	type target struct {
+		dev   config.Device[api.Meter]
+		index int
+		set   func(float64) error
+	}
+	var targets []target
+
+	for i, dev := range site.batteryMeters {
+		meter := dev.Instance()
+		if meter == nil {
+			continue
+		}
+		setter, ok := api.Cap[api.BatteryMaxDischarger](meter)
+		if !ok {
+			continue
+		}
+
+		var m types.Measurement
+		if i < len(devices) {
+			m = devices[i]
+		}
+		hold, err := site.batterySocLimitReached(dev, m, true)
+		if err != nil && !errors.Is(err, api.ErrNotAvailable) {
+			return false, err
+		}
+		if hold {
+			continue
+		}
+		targets = append(targets, target{dev, i, setter.SetMaxDischarge})
+	}
+
+	if len(targets) == 0 {
+		site.log.DEBUG.Println("peak shaving: no discharge limit, locking battery")
+		return false, site.applyBatteryMode(api.BatteryHold)
+	}
+
+	share := power / float64(len(targets))
+
+	applied := make(map[int]bool, len(targets))
+	wrote := false
+	for _, t := range targets {
+		limit := site.clampDischarge(t.dev.Instance(), share)
+		name := t.dev.Config().Name
+		if site.peakDischarge != nil {
+			if prev, ok := site.peakDischarge[name]; ok && math.Abs(prev-limit) < peakShavingDeadband {
+				applied[t.index] = true
+				wrote = true
+				continue
+			}
+		}
+
+		if err := t.set(limit); err != nil {
+			if !errors.Is(err, api.ErrNotAvailable) {
+				return wrote, err
+			}
+			continue
+		}
+
+		if site.peakDischarge == nil {
+			site.peakDischarge = make(map[string]float64)
+		}
+		site.peakDischarge[name] = limit
+		// the ceiling replaced the mode registers, so the next mode must be written again
+		delete(site.batteryModeApplied, name)
+		applied[t.index] = true
+		wrote = true
+		site.log.DEBUG.Printf("peak shaving: battery %s discharge up to %.0fW", deviceTitleOrName(t.dev), limit)
+	}
+
+	// batteries that cannot take a ceiling, or that are at their minimum soc, stay locked
+	for i, dev := range site.batteryMeters {
+		if dev.Instance() == nil || applied[i] {
+			continue
+		}
+		if _, ok := api.Cap[api.BatteryController](dev.Instance()); !ok {
+			continue
+		}
+		if err := site.writeBatteryMode(dev, i, api.BatteryHold); err != nil {
+			return wrote, err
+		}
+	}
+
+	return wrote, nil
+}
+
+func (site *Site) clampDischarge(meter api.Meter, power float64) float64 {
+	lim, ok := api.Cap[api.BatteryPowerLimiter](meter)
+	if !ok {
+		return power
+	}
+	_, max, err := lim.GetPowerLimits()
+	if err != nil || max <= 0 {
+		return power
+	}
+	return math.Min(power, max)
 }
 
 // requiredBatteryMode determines required battery mode based on grid charge/discharge and rate
@@ -254,17 +495,13 @@ func (site *Site) applyBatteryMode(mode api.BatteryMode) error {
 	fromToCharge := site.fromTo(mode, api.BatteryCharge)
 	fromToDischarge := site.fromTo(mode, api.BatteryDischarge)
 
-	if site.batteryModeApplied == nil {
-		site.batteryModeApplied = make(map[string]api.BatteryMode)
-	}
-
 	devices := site.state().battery.Devices
 
 	for i, dev := range site.batteryMeters {
-		meter := dev.Instance()
-
-		batCtrl, ok := api.Cap[api.BatteryController](meter)
-		if !ok {
+		if dev.Instance() == nil {
+			continue
+		}
+		if _, ok := api.Cap[api.BatteryController](dev.Instance()); !ok {
 			continue
 		}
 
@@ -287,38 +524,61 @@ func (site *Site) applyBatteryMode(mode api.BatteryMode) error {
 			}
 		}
 
-		if deviceMode == api.BatteryUnknown {
-			continue
+		if err := site.writeBatteryMode(dev, i, deviceMode); err != nil {
+			return err
 		}
-
-		// an unsupported mode falls back to the closest supported one instead of leaving the battery in the mode applied before
-		applyMode := supportedBatteryMode(batCtrl.BatteryModes(), deviceMode)
-		if applyMode == api.BatteryUnknown {
-			continue
-		}
-
-		// don't re-apply the mode the battery is already in
-		name := dev.Config().Name
-		if applyMode == site.batteryModeApplied[name] {
-			continue
-		}
-
-		if applyMode != deviceMode {
-			site.log.WARN.Printf("battery %s does not support mode %s, using %s", deviceTitleOrName(dev), deviceMode, applyMode)
-		}
-		deviceMode = applyMode
-
-		if err := batCtrl.SetBatteryMode(deviceMode); err != nil {
-			if !errors.Is(err, api.ErrNotAvailable) {
-				return err
-			}
-			continue
-		}
-
-		site.batteryModeApplied[name] = deviceMode
-		site.log.DEBUG.Printf("set battery %s mode: %s", deviceTitleOrName(dev), deviceMode)
 	}
 
+	return nil
+}
+
+// writeBatteryMode applies mode to one battery. A peak-shaving discharge ceiling
+// is cleared first so the mode's registers are written again.
+func (site *Site) writeBatteryMode(dev config.Device[api.Meter], _ int, mode api.BatteryMode) error {
+	if mode == api.BatteryUnknown {
+		return nil
+	}
+
+	meter := dev.Instance()
+	batCtrl, ok := api.Cap[api.BatteryController](meter)
+	if !ok {
+		return nil
+	}
+
+	// an unsupported mode falls back to the closest supported one instead of leaving the battery in the mode applied before
+	applyMode := supportedBatteryMode(batCtrl.BatteryModes(), mode)
+	if applyMode == api.BatteryUnknown {
+		return nil
+	}
+
+	if site.batteryModeApplied == nil {
+		site.batteryModeApplied = make(map[string]api.BatteryMode)
+	}
+
+	name := dev.Config().Name
+	// the discharge ceiling changed the same registers the mode owns
+	force := false
+	if _, ok := site.peakDischarge[name]; ok {
+		force = true
+		delete(site.peakDischarge, name)
+	}
+	if !force && applyMode == site.batteryModeApplied[name] {
+		return nil
+	}
+
+	if applyMode != mode {
+		site.log.WARN.Printf("battery %s does not support mode %s, using %s", deviceTitleOrName(dev), mode, applyMode)
+	}
+
+	if err := batCtrl.SetBatteryMode(applyMode); err != nil {
+		if !errors.Is(err, api.ErrNotAvailable) {
+			return err
+		}
+		return nil
+	}
+
+	site.batteryModeApplied[name] = applyMode
+	site.log.DEBUG.Printf("set battery %s mode: %s", deviceTitleOrName(dev), applyMode)
 	return nil
 }
 

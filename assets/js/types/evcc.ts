@@ -291,6 +291,8 @@ export interface State {
   bufferSoc?: number;
   /** Battery priority SoC in %. Home battery is charged first while below this level. */
   prioritySoc?: number;
+  /** Peak-shaving reserve in %. Below it the home battery is kept for peaks and discharges only while the root load-management circuit has reached its power limit. 0 disables the reserve. */
+  peakShavingSoc?: number;
   /** Battery buffer start SoC in %. Solar charging starts automatically above this level. */
   bufferStartSoc?: number;
   /** Home battery discharge is prevented during fast charging and planned charging. */

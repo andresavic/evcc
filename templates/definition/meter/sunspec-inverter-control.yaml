@@ -5,6 +5,12 @@ products:
       en: SunSpec Battery (Model 124)
 capabilities: ["battery-control"]
 group: generic
+requirements:
+  description:
+    de: |
+      Ein am Wechselrichter eingestellter Mindestladestand auf oder über der Lastspitzenreserve verhindert, dass diese Reserve entladen wird. Die maximale Entladeleistung muss gesetzt sein, damit eine begrenzte Entladerate vorgegeben werden kann.
+    en: |
+      A minimum charge level set on the inverter at or above the peak-shaving reserve stops that reserve from discharging. Set the maximum discharge power so a limited discharge rate can be commanded.
 params:
   - name: usage
     choice: ["battery"]
@@ -127,5 +133,20 @@ render: |
             source: sunspec
             {{- include "modbus" . | indent 10 }}
             value: 124:0:InOutWRte_RvrtTms
+  {{- if .maxdischargepower }}
+  maxdischarge: # limited discharge, W. StorCtl_Mod stays in discharge control.
+    source: sequence
+    set:
+    - source: const
+      value: 2
+      set:
+        source: sunspec
+        {{- include "modbus" . | indent 8 }}
+        value: 124:0:StorCtl_Mod
+    - source: sunspec
+      {{- include "modbus" . | indent 6 }}
+      value: 124:0:OutWRte
+      scale: {{ divf 100 .maxdischargepower }} # % of max discharge power
+  {{- end }}
   {{- include "battery-params" . }}
   {{- end }}

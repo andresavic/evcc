@@ -287,11 +287,43 @@ func (m *ModbusSunspec) FloatSetter(_ string) (func(float64) error, error) {
 		case typelabel.Float32:
 			point.SetFloat32(float32(val))
 		default:
-			return fmt.Errorf("invalid point type: %s", typ)
+			// integer and bitfield points take a rounded value, same encoding as IntSetter
+			if err := setSunspecInt(point, typ, int64(math.Round(val))); err != nil {
+				return err
+			}
 		}
 
 		return block.Write(m.op.Point)
 	}, nil
+}
+
+// setSunspecInt writes an integer sunspec point. Scale factors are applied by SetValue.
+func setSunspecInt(point sunspec.Point, typ string, val int64) error {
+	switch typ {
+	case typelabel.Bitfield16:
+		point.SetBitfield16(sunspec.Bitfield16(val))
+	case typelabel.Bitfield32:
+		point.SetBitfield32(sunspec.Bitfield32(val))
+	case typelabel.Enum16:
+		point.SetEnum16(sunspec.Enum16(val))
+	case typelabel.Enum32:
+		point.SetEnum32(sunspec.Enum32(val))
+	case typelabel.Int16:
+		point.SetValue(int16(val))
+	case typelabel.Int32:
+		point.SetValue(int32(val))
+	case typelabel.Int64:
+		point.SetValue(val)
+	case typelabel.Uint16:
+		point.SetValue(uint16(val))
+	case typelabel.Uint32:
+		point.SetValue(uint32(val))
+	case typelabel.Uint64:
+		point.SetValue(uint64(val))
+	default:
+		return fmt.Errorf("invalid point type: %s", typ)
+	}
+	return nil
 }
 
 var _ IntSetter = (*Modbus)(nil)
@@ -318,29 +350,8 @@ func (m *ModbusSunspec) IntSetter(_ string) (func(int64) error, error) {
 		val = int64(float64(val) * m.scale)
 
 		// SetValue is used to include the scale factor when writing
-		switch typ {
-		case typelabel.Bitfield16:
-			point.SetBitfield16(sunspec.Bitfield16(val))
-		case typelabel.Bitfield32:
-			point.SetBitfield32(sunspec.Bitfield32(val))
-		case typelabel.Enum16:
-			point.SetEnum16(sunspec.Enum16(val))
-		case typelabel.Enum32:
-			point.SetEnum32(sunspec.Enum32(val))
-		case typelabel.Int16:
-			point.SetValue(int16(val))
-		case typelabel.Int32:
-			point.SetValue(int32(val))
-		case typelabel.Int64:
-			point.SetValue(val)
-		case typelabel.Uint16:
-			point.SetValue(uint16(val))
-		case typelabel.Uint32:
-			point.SetValue(uint32(val))
-		case typelabel.Uint64:
-			point.SetValue(uint64(val))
-		default:
-			return fmt.Errorf("invalid point type: %s", typ)
+		if err := setSunspecInt(point, typ, val); err != nil {
+			return err
 		}
 
 		return block.Write(m.op.Point)

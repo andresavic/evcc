@@ -235,6 +235,10 @@
         "description": "The start page with charging points and energy flow, named after its tab bar label.",
         "other": "Charge page"
     },
+    "peakShavingReserve": {
+        "description": "Charge level of the home battery kept for load peaks. It discharges only while the root circuit has reached its power limit.",
+        "other": "peak-shaving reserve"
+    },
     "power": {
         "description": "Instantaneous rate, in W or kW. Not energy.",
         "other": "power"

@@ -36,6 +36,7 @@ func NewConfigurableFromConfig(ctx context.Context, other map[string]any) (api.M
 		LimitSoc              *plugin.Config // optional
 		BatteryMode           *plugin.Config // optional
 		BatteryModes          []string       // optional, modes supported by batteryMode if it cannot report them itself
+		MaxDischarge          *plugin.Config // optional, discharge ceiling in W ("discharge up to X")
 	}
 
 	if err := util.DecodeOther(other, &cc); err != nil {
@@ -139,6 +140,16 @@ func NewConfigurableFromConfig(ctx context.Context, other map[string]any) (api.M
 
 		case limitController != nil:
 			implement.Has(m, implement.BatteryController(batteryModesSocLimit, limitController))
+		}
+
+		// discharge ceiling is independent of the discrete mode: a device that can only
+		// hold or return to normal cannot express "discharge up to X"
+		if cc.MaxDischarge != nil {
+			set, err := cc.MaxDischarge.FloatSetter(ctx, "maxdischarge")
+			if err != nil {
+				return nil, fmt.Errorf("battery max discharge: %w", err)
+			}
+			implement.Has(m, implement.BatteryMaxDischarger(set))
 		}
 
 		return m, nil

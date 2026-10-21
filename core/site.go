@@ -89,6 +89,7 @@ type Site struct {
 	prioritySoc               float64  // prefer battery up to this Soc
 	bufferSoc                 float64  // continue charging on battery above this Soc
 	bufferStartSoc            float64  // start charging on battery above this Soc
+	peakShavingSoc            float64  // keep this soc for load peaks, 0 disables
 	batteryDischargeControl   bool     // prevent battery discharge for fast and planned charging
 	batteryGridChargeLimit    *float64 // grid charging limit
 	batteryGridDischargeLimit *float64 // grid discharging (feed-in) limit
@@ -120,6 +121,10 @@ type Site struct {
 	batteryModeExternal      api.BatteryMode             // Battery mode (external, runtime only, not persisted)
 	batteryModeExternalTimer time.Time                   // Battery mode timer for external control
 	batteryModeApplied       map[string]api.BatteryMode  // Battery mode last applied per battery meter
+	peakDischarge            map[string]float64          // last peak-shaving discharge ceiling per battery, W
+	peakShavingEngaged       bool                        // reserve is holding or discharging
+	gridPowerOK              bool                        // grid meter read succeeded this cycle
+	circuitPowerOK           bool                        // root circuit power updated this cycle
 	suggestions              map[string]types.Suggestion // Optimizer suggestions by device key
 	suggestionActions        map[string]string           // last notified actionable optimizer action by device key
 	lastOptimizerSolve       *optimizerSolve             // last successful solve, reapplied to newer slots by the control cycle
@@ -470,6 +475,11 @@ func (site *Site) restoreSettings() error {
 	}
 	if v, err := settings.Float(keys.PrioritySoc); err == nil {
 		if err := site.SetPrioritySoc(v); err != nil && !errors.Is(err, ErrBatteryNotConfigured) {
+			return err
+		}
+	}
+	if v, err := settings.Float(keys.PeakShavingSoc); err == nil {
+		if err := site.SetPeakShavingSoc(v); err != nil && !errors.Is(err, ErrBatteryNotConfigured) {
 			return err
 		}
 	}
@@ -1034,6 +1044,9 @@ func (site *Site) updateExtMeters() {
 // updateGridMeter updates grid meter
 func (site *Site) updateGridMeter() error {
 	if site.gridMeter == nil {
+		site.Lock()
+		site.gridPowerOK = false
+		site.Unlock()
 		return nil
 	}
 
@@ -1041,6 +1054,9 @@ func (site *Site) updateGridMeter() error {
 
 	meter := site.gridMeter.Instance()
 	if meter == nil {
+		site.Lock()
+		site.gridPowerOK = false
+		site.Unlock()
 		return errors.New("grid meter disabled, restart required")
 	}
 
@@ -1049,11 +1065,18 @@ func (site *Site) updateGridMeter() error {
 
 		site.Lock()
 		site.gridPower = res
+		site.gridPowerOK = true
 		site.Unlock()
 
 		site.log.DEBUG.Printf("grid power: %.0fW", res)
-	} else if !errors.Is(err, api.ErrNotAvailable) {
-		return fmt.Errorf("grid power: %v", err)
+	} else {
+		site.Lock()
+		site.gridPowerOK = false
+		site.Unlock()
+
+		if !errors.Is(err, api.ErrNotAvailable) {
+			return fmt.Errorf("grid power: %v", err)
+		}
 	}
 
 	// grid phase currents (signed)
@@ -1479,6 +1502,7 @@ func (site *Site) prepare() {
 	site.publish(keys.PrioritySoc, site.prioritySoc)
 	site.publish(keys.BufferSoc, site.bufferSoc)
 	site.publish(keys.BufferStartSoc, site.bufferStartSoc)
+	site.publish(keys.PeakShavingSoc, site.peakShavingSoc)
 	site.publish(keys.BatteryMode, site.batteryMode)
 	site.publish(keys.BatteryDischargeControl, site.batteryDischargeControl)
 	site.publish(keys.BatteryGridDischarge, site.batteryGridDischarge)

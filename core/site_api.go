@@ -358,6 +358,36 @@ func (site *Site) SetBufferSoc(soc float64) error {
 	return nil
 }
 
+// GetPeakShavingSoc returns the peak-shaving reserve in percent. 0 disables the feature.
+func (site *Site) GetPeakShavingSoc() float64 {
+	site.RLock()
+	defer site.RUnlock()
+	return site.peakShavingSoc
+}
+
+// SetPeakShavingSoc sets the peak-shaving reserve in percent. 0 disables the feature.
+func (site *Site) SetPeakShavingSoc(soc float64) error {
+	site.Lock()
+	defer site.Unlock()
+
+	if len(site.batteryMeters) == 0 {
+		return ErrBatteryNotConfigured
+	}
+	if soc < 0 || soc > 100 {
+		return fmt.Errorf("invalid peak shaving reserve: %g", soc)
+	}
+
+	site.log.DEBUG.Println("set peak shaving reserve:", soc)
+
+	if site.peakShavingSoc != soc {
+		site.peakShavingSoc = soc
+		settings.SetFloat(keys.PeakShavingSoc, site.peakShavingSoc)
+		site.publish(keys.PeakShavingSoc, site.peakShavingSoc)
+	}
+
+	return nil
+}
+
 // GetBufferStartSoc returns the BufferStartSoc
 func (site *Site) GetBufferStartSoc() float64 {
 	site.RLock()

@@ -56,6 +56,7 @@ const (
 	BatteryGridDischarge       = "batteryGridDischarge"
 	BufferSoc                  = "bufferSoc"
 	BufferStartSoc             = "bufferStartSoc"
+	PeakShavingSoc             = "peakShavingSoc"
 
 	// grid settings
 	GridExportLimit = "gridExportLimit"

@@ -208,6 +208,9 @@ components:
         prioritySoc:
           description: Battery priority SoC in %. Home battery is charged first while below this level.
           type: number
+        peakShavingSoc:
+          description: Peak-shaving reserve in %. Below it the home battery is kept for peaks and discharges only while the root load-management circuit has reached its power limit. 0 disables the reserve.
+          type: number
         bufferStartSoc:
           description: Battery buffer start SoC in %. Solar charging starts automatically above this level.
           type: number

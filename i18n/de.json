@@ -63,6 +63,8 @@
         "title": "Netzeinspeisung aus der Batterie"
       },
       "optimizerControlledHint": "Für {loadpoints} deaktiviert. Der {optimizer} entscheidet stattdessen.",
+      "peakShaving": "Unter diesem Ladestand wird die Batterie für Lastspitzen vorgehalten. Sie entlädt nur, solange das Lastmanagement-Limit erreicht ist.",
+      "peakShavingTitle": "Lastspitzenreserve",
       "priority": "Hausbatterie hat Vorrang, solange sie unter {soc} liegt. Dann erhalten die Ladepunkte den Überschuss.",
       "priorityNone": "Sonnenüberschuss geht direkt an die Ladepunkte. Setze einen Wert über {soc}, um die Hausbatterie zu bevorzugen.",
       "priorityTitle": "Wohin geht der Überschuss zuerst?"

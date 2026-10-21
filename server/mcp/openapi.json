@@ -1331,6 +1331,29 @@
         }
       }
     },
+    "/peakshavingsoc/{soc}": {
+      "post": {
+        "operationId": "setPeakShavingSoc",
+        "summary": "Set peak-shaving reserve",
+        "description": "Charge level kept for load peaks, in percent. Below it the home battery discharge stays locked and is released only while the root load-management circuit has reached its power limit. The battery then discharges only the power above that limit. 0 disables the reserve.",
+        "externalDocs": {
+          "url": "https://docs.evcc.io/en/features/battery"
+        },
+        "tags": [
+          "battery"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/soc"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/NumberResult"
+          }
+        }
+      }
+    },
     "/prioritysoc/{soc}": {
       "post": {
         "operationId": "setPrioritySoc",
@@ -5933,6 +5956,10 @@
           },
           "prioritySoc": {
             "description": "Battery priority SoC in %. Home battery is charged first while below this level.",
+            "type": "number"
+          },
+          "peakShavingSoc": {
+            "description": "Peak-shaving reserve in %. Below it the home battery is kept for peaks and discharges only while the root load-management circuit has reached its power limit. 0 disables the reserve.",
             "type": "number"
           },
           "bufferStartSoc": {
